@@ -1,3 +1,102 @@
+// global vars
+var hooks = [];
+var call_stack = [];
+var non_fatal_errors = '';
+var migration_error = false;
+var connection_data;
+var next_step_in_migration;
+
+function wpsdb_call_next_hook() {
+  if (!call_stack.length) {
+    call_stack = hooks;
+  }
+
+  var func = call_stack[0];
+  call_stack.shift();
+  window[func](); // Uses the string from the array to call the function of the same name
+}
+
+function wpsdb_add_commas(number_string) {
+  number_string += '';
+  x = number_string.split('.');
+  x1 = x[0];
+  x2 = x.length > 1 ? '.' + x[1] : '';
+  var rgx = /(\d+)(\d{3})/;
+  while (rgx.test(x1)) {
+    x1 = x1.replace(rgx, '$1' + ',' + '$2');
+  }
+  return x1 + x2;
+}
+
+(function($) {
+  $.wpsdb = {
+    /**
+     * Implement a WordPress-link Hook System for Javascript
+     * TODO: Change 'tag' to 'args', allow number (priority), string (tag),
+       object (priority+tag)
+     */
+    hooks: {
+      action: {},
+      filter: {}
+    },
+    add_action: function(action, callable, tag) {
+      jQuery.wpsdb.add_hook('action', action, callable, tag);
+    },
+    add_filter: function(action, callable, tag) {
+      jQuery.wpsdb.add_hook('filter', action, callable, tag);
+    },
+    do_action: function(action, args) {
+      jQuery.wpsdb.do_hook('action', action, null, args);
+    },
+    apply_filters: function(action, value, args) {
+      return jQuery.wpsdb.do_hook('filter', action, value, args);
+    },
+    remove_action: function(action, tag) {
+      jQuery.wpsdb.remove_hook('action', action, tag);
+    },
+    remove_filter: function(action, tag) {
+      jQuery.wpsdb.remove_hook('filter', action, tag);
+    },
+    add_hook: function(hook_type, action, callable, tag) {
+      if (undefined == jQuery.wpsdb.hooks[hook_type][action]) {
+        jQuery.wpsdb.hooks[hook_type][action] = [];
+      }
+      var hooks = jQuery.wpsdb.hooks[hook_type][action];
+      if (undefined == tag) {
+        tag = action + '_' + hooks.length;
+      }
+      jQuery.wpsdb.hooks[hook_type][action].push({
+        tag: tag,
+        callable: callable
+      });
+    },
+    do_hook: function(hook_type, action, value, args) {
+      if (undefined != jQuery.wpsdb.hooks[hook_type][action]) {
+        var hooks = jQuery.wpsdb.hooks[hook_type][action];
+        for (var i = 0; i < hooks.length; i++) {
+          if ('action' == hook_type) {
+            hooks[i].callable(args);
+          } else {
+            value = hooks[i].callable(value, args);
+          }
+        }
+      }
+      if ('filter' == hook_type) {
+        return value;
+      }
+    },
+    remove_hook: function(hook_type, action, tag) {
+      if (undefined != jQuery.wpsdb.hooks[hook_type][action]) {
+        var hooks = jQuery.wpsdb.hooks[hook_type][action];
+        for (var i = hooks.length - 1; i >= 0; i--) {
+          if (undefined == tag || tag == hooks[i].tag)
+            hooks.splice(i, 1);
+        }
+      }
+    }
+  };
+})(jQuery);
+
 // global functions
 var migration_complete;
 var migration_complete_events;
@@ -1295,12 +1394,12 @@ var execute_next_step;
     };
 
     // close progress pop up once migration is completed
-    $('body').delegate('.close-progress-content-button', 'click', function(
+    $('body').on('click', '.close-progress-content-button', function(
       e) {
       hide_overlay();
     });
 
-    $('body').delegate('#overlay', 'click', function() {
+    $('body').on('click', '#overlay', function() {
       if (migration_completed == true) {
         hide_overlay();
       }
@@ -1407,7 +1506,7 @@ var execute_next_step;
     });
 
     // progress label updating
-    $('body').delegate('.progress-chunk-hover', 'mousemove', function(e) {
+    $('body').on('mousemove', '.progress-chunk-hover', function(e) {
       mX = e.pageX;
       offset = $('.progress-bar-wrapper').offset();
       label_offset = $('.progress-label').outerWidth() / 2;
@@ -1417,7 +1516,7 @@ var execute_next_step;
     });
 
     // show / hide progress lavel on hover
-    $('body').delegate('.progress-chunk-hover', 'hover', function(event) {
+    $('body').on('mouseenter mouseleave', '.progress-chunk-hover', function(event) {
       if (event.type === 'mouseenter') {
         $('.progress-label').addClass('label-visible');
       } else {
@@ -1629,13 +1728,13 @@ var execute_next_step;
     });
 
     // repeatable fields
-    $('body').delegate('.add-row', 'click', function() {
+    $('body').on('click', '.add-row', function() {
       $(this).parents('tr').before($('.original-repeatable-field').clone()
         .removeClass('original-repeatable-field'));
     });
 
     // repeatable fields
-    $('body').delegate('.replace-remove-row', 'click', function() {
+    $('body').on('click', '.replace-remove-row', function() {
       $(this).parents('tr').remove();
       if ($('.replace-row').length < 2) {
         $('.no-replaces-message').show();
@@ -1648,8 +1747,8 @@ var execute_next_step;
       $('.no-replaces-message').hide();
     });
 
-    $('body').delegate('#find-and-replace-sort tbody tr.replace-row',
-      'hover', function(event) {
+    $('body').on('mouseenter mouseleave', '#find-and-replace-sort tbody tr.replace-row',
+      function(event) {
         if (event.type === 'mouseenter') {
           $('.replace-remove-row', this).show();
         } else {
@@ -1671,7 +1770,7 @@ var execute_next_step;
     });
 
     // delete saved profiles
-    $('body').delegate('.save-migration-profile-wrap li', 'hover', function(
+    $('body').on('mouseenter mouseleave', '.save-migration-profile-wrap li', function(
       event) {
       if (event.type === 'mouseenter') {
         $('.delete-profile', this).show();
@@ -1811,7 +1910,7 @@ var execute_next_step;
     });
 
     // delete a profile from the migrate form area
-    $('body').delegate('.delete-profile', 'click', function() {
+    $('body').on('click', '.delete-profile', function() {
       var name = $(this).next().clone();
       $('input', name).remove();
       var name = $.trim($(name).html());
@@ -1875,7 +1974,7 @@ var execute_next_step;
 
     // warn the user when editing the connection info after a connection has
     // been established
-    $('body').delegate('.temp-disabled', 'click', function() {
+    $('body').on('click', '.temp-disabled', function() {
       var answer = confirm(wpsdb_i10n.change_connection_info);
 
       if (!answer) {
@@ -1952,11 +2051,11 @@ var execute_next_step;
 
     });
 
-    $('body').delegate('.try-again', 'click', function() {
+    $('body').on('click', '.try-again', function() {
       connection_box_changed();
     });
 
-    $('body').delegate('.try-http', 'click', function() {
+    $('body').on('click', '.try-http', function() {
       var connection_info = $.trim($('.pull-push-connection-info').val())
         .split("\n");
       var new_url = connection_info[0].replace('https', 'http');
@@ -1969,7 +2068,7 @@ var execute_next_step;
       profile_name_edited = true;
     });
 
-    $('body').delegate('.temporarily-disable-ssl', 'click', function() {
+    $('body').on('click', '.temporarily-disable-ssl', function() {
       if (window.location.hash) {
         var hash = window.location.hash.substring(1);
       }
@@ -2191,7 +2290,7 @@ var execute_next_step;
       });
     }
 
-    $('body').delegate('.pause-resume', 'click', function() {
+    $('body').on('click', '.pause-resume', function() {
       if (true == migration_paused) {
         migration_paused = false;
         doing_ajax = true;
@@ -2213,7 +2312,7 @@ var execute_next_step;
       }
     });
 
-    $('body').delegate('.cancel', 'click', function() {
+    $('body').on('click', '.cancel', function() {
       migration_cancelled = true;
       migration_paused = false;
       $('.progress-text').html(wpsdb_i10n.completing_current_request);
